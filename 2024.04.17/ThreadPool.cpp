@@ -15,7 +15,7 @@ ThreadPool::~ThreadPool() {
 	cv_job_q_.notify_all();
 
 	for (auto& t : worker_threads_) {
-		// joinÀº È£Ãâ¾²·¹µå¿¡¼­ ½ÇÇàÁßÀÎ ¾²·¹µå°¡ ¿Ï·áµÉ¶§±îÁö ±â´Ù¸®´Â°Í
+		// joinì€ í˜¸ì¶œì“°ë ˆë“œì—ì„œ ì‹¤í–‰ì¤‘ì¸ ì“°ë ˆë“œê°€ ì™„ë£Œë ë•Œê¹Œì§€ ê¸°ë‹¤ë¦¬ëŠ”ê²ƒ
 		t.join();
 	}
 }
@@ -24,17 +24,17 @@ ThreadPool::~ThreadPool() {
 void ThreadPool::WorkerThread() {
 	while (true) {
 		std::unique_lock<std::mutex> lock(m_job_q_);
-		// conditioal variable ·Î ´ë±â Å¥¿¡ ¹º°¡ °ªÀÌ ÀÖÀ¸¸é ÁøÇàÇØ¾ßÇÏ°í
-		// stop_all ÀÌ ÀÖ¾îµµ ±×¸¸ ±â´Ù·Á¼­ Áß´ÜÇØ¾ßÇÑ´Ù.
-		cv_job_q_.wait(lock, [this]() {return !this->jobs_.empty() && stop_all_; });
+		// conditioal variable ë¡œ ëŒ€ê¸° íì— ë­”ê°€ ê°’ì´ ìˆìœ¼ë©´ ì§„í–‰í•´ì•¼í•˜ê³ 
+		// stop_all ì´ ìˆì–´ë„ ê·¸ë§Œ ê¸°ë‹¤ë ¤ì„œ ì¤‘ë‹¨í•´ì•¼í•œë‹¤.
+		cv_job_q_.wait(lock, [this]() {return !this->jobs_.empty() || stop_all_; });
 		if (stop_all_ && this->jobs_.empty()) return;
 
-		// ÀâÀÌ ÀÖÀ¸¸é ÇÏ³ª »©¼­ ¼öÇàÇÑ´Ù.
+		// ì¡ì´ ìˆìœ¼ë©´ í•˜ë‚˜ ë¹¼ì„œ ìˆ˜í–‰í•œë‹¤.
 		std::function<void()> job = std::move(jobs_.front());
 		jobs_.pop();
 
 		lock.unlock();
-		// ÀâÀ» ¼öÇàÇÑ´Ù.
+		// ì¡ì„ ìˆ˜í–‰í•œë‹¤.
 		job();
 	}
 }
@@ -43,26 +43,26 @@ template<typename F, typename... Args>
 std::future<typename std::result_of<F(Args...)>::type>
 ThreadPool::EnqueueJob(F&& f, Args&&... args) {
 	if (stop_all_) {
-		throw std::runtime_error("ThreadPool »ç¿ë ÁßÁöµÊ");
+		throw std::runtime_error("ThreadPool ì‚¬ìš© ì¤‘ì§€ë¨");
 	}
-	// typenameÀÌ Å¸ÀÔÀÌ¶õ°É ¾Ë·ÁÁÖ´Â Å°¿öµå
+	// typenameì´ íƒ€ì…ì´ë€ê±¸ ì•Œë ¤ì£¼ëŠ” í‚¤ì›Œë“œ
 	using return_type = typename std::result_of<F(args...)>::type;
 
-	// job ¿¡ ´ëÇÑ ¸®ÅÏ°ªÀ» ¹Ş±âÀ§ÇØ¼­´Â.. ºñµ¿±âÀûÀ¸·Î ½ÇÇàµÇ´Â
-	// std::queue<std::function<void()>> jobs_; ¿¡ Ãß°¡ÇØ¾ßÇÔ
+	// job ì— ëŒ€í•œ ë¦¬í„´ê°’ì„ ë°›ê¸°ìœ„í•´ì„œëŠ”.. ë¹„ë™ê¸°ì ìœ¼ë¡œ ì‹¤í–‰ë˜ëŠ”
+	// std::queue<std::function<void()>> jobs_; ì— ì¶”ê°€í•´ì•¼í•¨
 
-	// ºñµ¿±âÇÔ¼öÀÇ ¸®ÅÏ°ªÀ» ¹Ş±âÀ§ÇØ, future¸¦ ¸®ÅÏÇÏ´Â packaged_task·Î Ä¸½¶È­
-	// ÀÎÀÚ·Î´Â ÇÔ¼ö °´Ã¼¸¦ ¹Ş°í, bind¸¦ ÀÌ¿ëÇÏ¿© ÇÔ¼ö¿Í ÀÎÀÚ¸¦ ¿¬°á½ÃÄÑÁØ´Ù.
+	// ë¹„ë™ê¸°í•¨ìˆ˜ì˜ ë¦¬í„´ê°’ì„ ë°›ê¸°ìœ„í•´, futureë¥¼ ë¦¬í„´í•˜ëŠ” packaged_taskë¡œ ìº¡ìŠí™”
+	// ì¸ìë¡œëŠ” í•¨ìˆ˜ ê°ì²´ë¥¼ ë°›ê³ , bindë¥¼ ì´ìš©í•˜ì—¬ í•¨ìˆ˜ì™€ ì¸ìë¥¼ ì—°ê²°ì‹œì¼œì¤€ë‹¤.
 
 	auto job = std::make_shared<std::packaged_task<return_type()>>(
 		std::bind(std::forward<F>(f), std::forward<Args>(args)...));
 	
-	// future¸¦ ÀúÀå(¹Ì·¡¿¡ ¸®ÅÏ°ªÀ» µ¹·ÁÁÖ°Ú´Ù´Â ¾à¼Ó)
+	// futureë¥¼ ì €ì¥(ë¯¸ë˜ì— ë¦¬í„´ê°’ì„ ëŒë ¤ì£¼ê² ë‹¤ëŠ” ì•½ì†)
 	std::future<return_type> job_result_future = job->get_future();
 	{
 		std::lock_guard<std::mutex> lock(m_job_q_);
 
-		// void() Çü ÀÌ±â ¶§¹®¿¡ ÇÑ¹ø´õ °¨½ÎÁØ´Ù.
+		// void() í˜• ì´ê¸° ë•Œë¬¸ì— í•œë²ˆë” ê°ì‹¸ì¤€ë‹¤.
 		jobs_.push([job]() {(*job)(); });
 	}
 	cv_job_q_.notify_one();
